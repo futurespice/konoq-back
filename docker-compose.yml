@@ -32,9 +32,15 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - static_files:/app/staticfiles:ro
+      # Фронтенд — собранный React (dist/)
+      - /home/myprojects/frontend/konoq/dist:/usr/share/nginx/html:ro
+      # SSL сертификаты Let's Encrypt
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
     depends_on:
       - web
 

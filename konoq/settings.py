@@ -152,6 +152,17 @@ CORS_ALLOWED_ORIGINS = env(
 )
 CORS_ALLOW_CREDENTIALS = True
 
+# ── CSRF ──────────────────────────────────────────────────────────────────────
+# Нужно для Django Admin за Nginx-прокси (HTTPS)
+CSRF_TRUSTED_ORIGINS = env(
+    "CSRF_TRUSTED_ORIGINS",
+    "http://localhost:3000",
+    cast=list,
+)
+
+# Говорим Django что он за доверенным прокси
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # ── Swagger / drf-spectacular ─────────────────────────────────────────────────
 SPECTACULAR_SETTINGS = {
     "TITLE":       "KonoQ API",

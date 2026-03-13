@@ -8,25 +8,61 @@ from .models import Booking
 class BookingCreateSerializer(serializers.ModelSerializer):
     """
     Публичный сериализатор — используется для создания бронирования с фронта.
+
+    Фронт может отправить либо:
+      - fullname: "Иван Иванов"  (одно поле — как сейчас в Booking-компоненте)
+      - name + surname раздельно (старый формат / Swagger)
+
     Статус гость не передаёт — он всегда 'pending'.
     """
+    # Принимаем fullname с фронта, но в модели его нет → write_only
+    fullname = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Полное имя (если отправляется одним полем вместо name+surname)",
+    )
+
     class Meta:
         model  = Booking
         fields = [
-            "name", "surname", "phone", "email",
+            "fullname",                          # ← с фронта
+            "name", "surname",                   # ← прямой формат
+            "phone", "email",
             "checkin", "checkout", "guests", "room", "comment",
             "country", "purpose",
         ]
+        extra_kwargs = {
+            "name":    {"required": False, "allow_blank": True},
+            "surname": {"required": False, "allow_blank": True},
+        }
 
     def validate(self, attrs):
+        # ── fullname → name + surname ──────────────────────────────
+        fullname = attrs.pop("fullname", None)
+        if fullname:
+            parts = fullname.strip().split(None, 1)   # разбить по первому пробелу
+            attrs["name"]    = parts[0]
+            attrs["surname"] = parts[1] if len(parts) > 1 else ""
+
+        # Теперь name обязателен
+        if not attrs.get("name"):
+            raise serializers.ValidationError(
+                {"fullname": "Укажите имя (поле fullname или name)."}
+            )
+
+        # ── Проверка дат ───────────────────────────────────────────
         if attrs["checkin"] >= attrs["checkout"]:
             raise serializers.ValidationError(
                 {"checkout": "Дата выезда должна быть позже даты заезда."}
             )
+
+        # ── Проверка кол-ва гостей ────────────────────────────────
         if attrs["guests"] < 1 or attrs["guests"] > 20:
             raise serializers.ValidationError(
                 {"guests": "Количество гостей должно быть от 1 до 20."}
             )
+
         return attrs
 
 

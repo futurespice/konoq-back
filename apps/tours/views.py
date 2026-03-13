@@ -2,7 +2,7 @@
 apps/tours/views.py
 """
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiResponse
@@ -11,10 +11,31 @@ from .models import Tour
 from .serializers import TourSerializer
 
 
+class TourPublicListView(APIView):
+    """
+    Публичный эндпоинт — список активных туров для главной страницы.
+    Авторизация НЕ нужна.
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["tours"],
+        summary="Публичный список туров",
+        description="Возвращает только активные туры (is_active=True). Авторизация не нужна.",
+        responses={200: TourSerializer(many=True)},
+    )
+    def get(self, request):
+        tours = Tour.objects.filter(is_active=True)
+        return Response(TourSerializer(tours, many=True).data)
+
+
 class TourListView(APIView):
+    """
+    Полный список туров + создание — только для авторизованных.
+    """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=["tours"], summary="Список туров", responses={200: TourSerializer(many=True)})
+    @extend_schema(tags=["tours"], summary="Список всех туров (менеджер)", responses={200: TourSerializer(many=True)})
     def get(self, request):
         tours = Tour.objects.all()
         return Response(TourSerializer(tours, many=True).data)

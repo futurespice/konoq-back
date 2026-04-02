@@ -1,14 +1,28 @@
+"""
+apps/rooms/serializers.py
+"""
 from rest_framework import serializers
-from .models import Room
+from .models import Branch, Room
+
+
+class BranchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Branch
+        fields = ["id", "name", "address", "is_active"]
 
 
 class RoomSerializer(serializers.ModelSerializer):
     room_type_display = serializers.CharField(source="get_room_type_display", read_only=True)
+    branch_name       = serializers.CharField(source="branch.name", read_only=True)
 
     class Meta:
         model  = Room
-        fields = ["id", "number", "room_type", "room_type_display",
-                  "capacity", "price_per_night", "description", "is_active"]
+        fields = [
+            "id", "branch", "branch_name",
+            "number", "room_type", "room_type_display",
+            "capacity", "price_per_night", "price_is_per_bed",
+            "has_bathroom", "description", "is_active",
+        ]
 
 
 class RoomAvailabilitySerializer(RoomSerializer):
@@ -22,4 +36,8 @@ class RoomAvailabilitySerializer(RoomSerializer):
 class RoomWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Room
-        fields = ["number", "room_type", "capacity", "price_per_night", "description", "is_active"]
+        fields = [
+            "branch", "number", "room_type",
+            "capacity", "price_per_night", "price_is_per_bed",
+            "has_bathroom", "description", "is_active",
+        ]

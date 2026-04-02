@@ -20,8 +20,14 @@ urlpatterns = [
     path("api/tours/",    include("apps.tours.urls")),
     path("api/finance/",  include("apps.finance.urls")),
 
+    # Telegram Bot webhook
+    path("api/tg/", include("apps.tg_bot.urls")),
+
+    # WhatsApp Bot webhook
+    path("api/wa/", include("apps.wa_bot.urls")),
+
     # Schema & Docs
-    path("api/schema/",  SpectacularAPIView.as_view(),       name="schema"),
-    path("api/docs/",    SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-    path("api/redoc/",   SpectacularRedocView.as_view(url_name="schema"),   name="redoc"),
+    path("api/schema/", SpectacularAPIView.as_view(),                         name="schema"),
+    path("api/docs/",   SpectacularSwaggerView.as_view(url_name="schema"),    name="swagger-ui"),
+    path("api/redoc/",  SpectacularRedocView.as_view(url_name="schema"),      name="redoc"),
 ]

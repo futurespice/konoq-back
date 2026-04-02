@@ -10,10 +10,10 @@ class BookingAdmin(admin.ModelAdmin):
     list_display = [
         "id", "name", "surname", "phone",
         "checkin", "checkout", "get_nights",
-        "guests", "room", "country", "purpose",
-        "status", "created_at",
+        "guests", "room", "branch", "source",
+        "country", "purpose", "status", "created_at",
     ]
-    list_filter   = ["status", "room", "purpose", "country"]
+    list_filter   = ["status", "room", "source", "branch", "purpose", "country"]
     search_fields = ["name", "surname", "phone", "email", "country"]
     ordering      = ["-created_at"]
     list_editable  = ["status"]
@@ -24,13 +24,13 @@ class BookingAdmin(admin.ModelAdmin):
             "fields": ("name", "surname", "phone", "email")
         }),
         ("Бронирование", {
-            "fields": ("checkin", "checkout", "get_nights", "guests", "room", "comment")
+            "fields": ("checkin", "checkout", "get_nights", "guests", "room", "branch", "comment")
         }),
         ("Анкета", {
             "fields": ("country", "purpose")
         }),
-        ("Управление", {
-            "fields": ("status", "created_at", "updated_at")
+        ("Канал и управление", {
+            "fields": ("source", "status", "created_at", "updated_at")
         }),
     )
 

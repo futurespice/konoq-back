@@ -25,8 +25,8 @@ def env(key, default=None, cast=None):
 
 
 SECRET_KEY    = env("SECRET_KEY", "django-insecure-konoq-dev-key-change-in-production")
-DEBUG         = env("DEBUG", "True", cast=bool)
-ALLOWED_HOSTS = env("ALLOWED_HOSTS", "*", cast=list)
+DEBUG         = env("DEBUG", "False", cast=bool)
+ALLOWED_HOSTS = env("ALLOWED_HOSTS", "", cast=list)
 
 # ── Applications ──────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
@@ -48,6 +48,8 @@ INSTALLED_APPS = [
     "apps.rooms",
     "apps.tours",
     "apps.finance",
+    "apps.tg_bot",
+    "apps.wa_bot",
 ]
 
 MIDDLEWARE = [
@@ -80,6 +82,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "konoq.wsgi.application"
+# Webhook принимается через ASGI (async view), но Gunicorn у нас WSGI.
+# Django 4.1+ умеет обрабатывать async views в WSGI через ThreadPoolExecutor — всё работает.
 
 # ── Database ──────────────────────────────────────────────────────────────────
 # В продакшне (Docker) используется PostgreSQL, в разработке — SQLite
@@ -137,7 +141,7 @@ REST_FRAMEWORK = {
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME":    timedelta(hours=env("ACCESS_TOKEN_LIFETIME_HOURS", 8, cast=int)),
+    "ACCESS_TOKEN_LIFETIME":    timedelta(minutes=env("ACCESS_TOKEN_LIFETIME_MINUTES", 30, cast=int)),
     "REFRESH_TOKEN_LIFETIME":   timedelta(days=env("REFRESH_TOKEN_LIFETIME_DAYS",  30, cast=int)),
     "ROTATE_REFRESH_TOKENS":    True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -154,7 +158,6 @@ CORS_ALLOWED_ORIGINS = env(
 CORS_ALLOW_CREDENTIALS = True
 
 # ── CSRF ──────────────────────────────────────────────────────────────────────
-# Нужно для Django Admin за Nginx-прокси (HTTPS)
 CSRF_TRUSTED_ORIGINS = env(
     "CSRF_TRUSTED_ORIGINS",
     "http://localhost:3000",
@@ -163,6 +166,16 @@ CSRF_TRUSTED_ORIGINS = env(
 
 # Говорим Django что он за доверенным прокси
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# ── Telegram Bot ──────────────────────────────────────────────────────────────
+# TG_BOT_TOKEN      — токен от @BotFather
+# TG_OWNER_ID       — Telegram user_id владельца (Эрнис)
+# TG_WEBHOOK_SECRET — случайная строка, часть URL webhook
+# SITE_URL          — https://konoq-hostel.com (без слэша в конце)
+TG_BOT_TOKEN      = env("TG_BOT_TOKEN",      "")
+TG_OWNER_ID       = env("TG_OWNER_ID",       "0")
+TG_WEBHOOK_SECRET = env("TG_WEBHOOK_SECRET", "")
+SITE_URL          = env("SITE_URL",          "")
 
 # ── Swagger / drf-spectacular ─────────────────────────────────────────────────
 SPECTACULAR_SETTINGS = {
@@ -184,3 +197,8 @@ SPECTACULAR_SETTINGS = {
         {"name": "finance",  "description": "Финансы и выручка (только admin)"},
     ],
 }
+
+# ── WhatsApp Bot (Meta Cloud API) ─────────────────────────────────────────────
+WA_TOKEN           = env("WA_TOKEN",           "")
+WA_PHONE_NUMBER_ID = env("WA_PHONE_NUMBER_ID", "")
+WA_VERIFY_TOKEN    = env("WA_VERIFY_TOKEN",    "")

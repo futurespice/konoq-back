@@ -14,8 +14,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
       - name + surname раздельно (старый формат / Swagger)
 
     Статус гость не передаёт — он всегда 'pending'.
+    source передаётся опционально (для walk-in, telegram и т.д.).
     """
-    # Принимаем fullname с фронта, но в модели его нет → write_only
     fullname = serializers.CharField(
         write_only=True,
         required=False,
@@ -26,26 +26,28 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Booking
         fields = [
-            "fullname",                          # ← с фронта
-            "name", "surname",                   # ← прямой формат
+            "fullname",
+            "name", "surname",
             "phone", "email",
             "checkin", "checkout", "guests", "room", "comment",
             "country", "purpose",
+            "source", "branch",
         ]
         extra_kwargs = {
             "name":    {"required": False, "allow_blank": True},
             "surname": {"required": False, "allow_blank": True},
+            "source":  {"required": False},
+            "branch":  {"required": False},
         }
 
     def validate(self, attrs):
         # ── fullname → name + surname ──────────────────────────────
         fullname = attrs.pop("fullname", None)
         if fullname:
-            parts = fullname.strip().split(None, 1)   # разбить по первому пробелу
+            parts = fullname.strip().split(None, 1)
             attrs["name"]    = parts[0]
             attrs["surname"] = parts[1] if len(parts) > 1 else ""
 
-        # Теперь name обязателен
         if not attrs.get("name"):
             raise serializers.ValidationError(
                 {"fullname": "Укажите имя (поле fullname или name)."}
@@ -71,8 +73,10 @@ class BookingListSerializer(serializers.ModelSerializer):
     Список бронирований для дашборда менеджера — все поля + вычисляемые.
     """
     status_display  = serializers.CharField(source="get_status_display",  read_only=True)
-    room_display    = serializers.CharField(source="get_room_display",    read_only=True)
-    purpose_display = serializers.CharField(source="get_purpose_display", read_only=True)
+    room_display    = serializers.CharField(source="get_room_display",     read_only=True)
+    purpose_display = serializers.CharField(source="get_purpose_display",  read_only=True)
+    source_display  = serializers.CharField(source="get_source_display",   read_only=True)
+    branch_name     = serializers.CharField(source="branch.name",          read_only=True)
     nights          = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -85,15 +89,15 @@ class BookingListSerializer(serializers.ModelSerializer):
             "comment",
             "country",
             "purpose", "purpose_display",
+            "source", "source_display",
+            "branch", "branch_name",
             "status", "status_display",
             "created_at", "updated_at",
         ]
 
 
 class BookingStatusUpdateSerializer(serializers.ModelSerializer):
-    """
-    Только для менеджера — смена статуса бронирования.
-    """
+    """Только для менеджера — смена статуса бронирования."""
     class Meta:
         model  = Booking
         fields = ["status"]
@@ -111,3 +115,20 @@ class BookingStatsSerializer(serializers.Serializer):
     pending   = serializers.IntegerField()
     confirmed = serializers.IntegerField()
     cancelled = serializers.IntegerField()
+
+
+class ICalLinkSerializer(serializers.ModelSerializer):
+    """Сериализатор для работы со ссылками iCal (менеджер)."""
+    room_type_display = serializers.CharField(source="get_room_type_display", read_only=True)
+    source_display    = serializers.CharField(source="get_source_display",    read_only=True)
+    branch_name       = serializers.CharField(source="branch.name",           read_only=True)
+
+    class Meta:
+        model  = __import__("apps.bookings.models", fromlist=["ICalLink"]).ICalLink
+        fields = [
+            "id", "branch", "branch_name",
+            "room_type", "room_type_display",
+            "url", "source", "source_display",
+            "last_synced_at"
+        ]
+        read_only_fields = ["last_synced_at"]

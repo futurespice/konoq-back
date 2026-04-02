@@ -4,6 +4,14 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def preserve_null_branch_rooms(apps, schema_editor):
+    Room = apps.get_model('rooms', 'Room')
+    Branch = apps.get_model('rooms', 'Branch')
+    if Room.objects.filter(branch__isnull=True).exists():
+        default_branch, _ = Branch.objects.get_or_create(name="Старый филиал (сохранено)")
+        Room.objects.filter(branch__isnull=True).update(branch=default_branch)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -11,6 +19,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(preserve_null_branch_rooms),
         migrations.AlterField(
             model_name='room',
             name='branch',

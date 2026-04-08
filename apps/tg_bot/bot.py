@@ -45,10 +45,14 @@ async def notify_owner(text: str) -> None:
     """Отправляет сообщение владельцу (Эрнису). Тихо проглатывает ошибки."""
     if not TOKEN or not OWNER_ID:
         return
+    
+    bot_instance = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     try:
-        await bot.send_message(OWNER_ID, text)
+        await bot_instance.send_message(OWNER_ID, text)
     except Exception as exc:
         logger.error("Ошибка отправки уведомления в Telegram: %s", exc)
+    finally:
+        await bot_instance.session.close()
 
 
 async def notify_owner_new_booking(booking) -> None:
@@ -79,7 +83,10 @@ async def notify_owner_new_booking(booking) -> None:
         InlineKeyboardButton(text="❌ Отменить",    callback_data=f"cancel:{booking.id}"),
     ]])
 
+    bot_instance = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     try:
-        await bot.send_message(OWNER_ID, text, reply_markup=kb)
+        await bot_instance.send_message(OWNER_ID, text, reply_markup=kb)
     except Exception as exc:
         logger.error("Ошибка отправки уведомления о бронировании: %s", exc)
+    finally:
+        await bot_instance.session.close()

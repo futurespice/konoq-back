@@ -21,7 +21,7 @@ class RoomSerializer(serializers.ModelSerializer):
             "id", "branch", "branch_name",
             "number", "room_type", "room_type_display",
             "capacity", "price_per_night", "price_is_per_bed",
-            "has_bathroom", "description", "is_active",
+            "has_bathroom", "description", "is_active", "image",
         ]
 
 
@@ -39,5 +39,5 @@ class RoomWriteSerializer(serializers.ModelSerializer):
         fields = [
             "branch", "number", "room_type",
             "capacity", "price_per_night", "price_is_per_bed",
-            "has_bathroom", "description", "is_active",
+            "has_bathroom", "description", "is_active", "image",
         ]

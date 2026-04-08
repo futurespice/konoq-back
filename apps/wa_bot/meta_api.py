@@ -15,7 +15,7 @@ def send_wa_message(phone: str, text: str):
 
     clean_phone = ''.join(filter(str.isdigit, phone))
 
-    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",

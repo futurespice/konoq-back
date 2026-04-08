@@ -16,7 +16,7 @@ class BranchAdmin(admin.ModelAdmin):
 class RoomAdmin(admin.ModelAdmin):
     list_display  = [
         "number", "branch", "room_type", "capacity",
-        "price_per_night", "price_is_per_bed", "has_bathroom", "is_active",
+        "price_per_night", "price_is_per_bed", "has_bathroom", "is_active", "image",
     ]
     list_editable = ["price_per_night", "is_active"]
     list_filter   = ["branch", "room_type", "has_bathroom", "is_active"]

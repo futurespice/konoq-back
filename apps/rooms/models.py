@@ -57,6 +57,12 @@ class Room(models.Model):
         verbose_name="Цена за место (шконку)",
         help_text="True для дормов: клиент платит за место, а не за всю комнату",
     )
+    image        = models.ImageField(
+        upload_to="rooms/",
+        blank=True,
+        null=True,
+        verbose_name="Изображение",
+    )
     has_bathroom = models.BooleanField(default=False, verbose_name="Собственный санузел")
     description  = models.TextField(blank=True, default="", verbose_name="Описание")
     is_active    = models.BooleanField(default=True, verbose_name="Активен")

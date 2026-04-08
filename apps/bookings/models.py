@@ -34,6 +34,7 @@ class Booking(models.Model):
         AIRBNB      = "airbnb",      "Airbnb"
         WALK_IN     = "walk_in",     "Walk-in"
         TELEGRAM    = "telegram",    "Telegram"
+        WHATSAPP    = "whatsapp",    "WhatsApp"
 
     # ── Шаг 1: Личные данные ─────────────────────────────────────────────────
     name    = models.CharField(max_length=100, verbose_name="Имя")

@@ -90,3 +90,5 @@ async def notify_owner_new_booking(booking) -> None:
         logger.error("Ошибка отправки уведомления о бронировании: %s", exc)
     finally:
         await bot_instance.session.close()
+
+

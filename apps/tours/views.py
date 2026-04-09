@@ -53,7 +53,10 @@ class TourListView(APIView):
 
 
 class TourDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def _get(self, pk):
         try:

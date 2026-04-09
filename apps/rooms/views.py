@@ -39,7 +39,10 @@ def _get_booked_guests(checkin: date, checkout: date, branch_id=None) -> dict:
 # ── Branch ────────────────────────────────────────────────────────────────────
 
 class BranchListView(APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     @extend_schema(tags=["rooms"], summary="Список филиалов", responses={200: BranchSerializer(many=True)})
     def get(self, request):
@@ -54,7 +57,10 @@ class BranchListView(APIView):
 
 
 class BranchDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def _get(self, pk):
         try:
@@ -91,7 +97,10 @@ class BranchDetailView(APIView):
 # ── Room ──────────────────────────────────────────────────────────────────────
 
 class RoomListView(APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     @extend_schema(
         tags=["rooms"],
@@ -150,7 +159,10 @@ class RoomListView(APIView):
 
 
 class RoomDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def _get(self, pk):
         try:

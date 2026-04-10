@@ -13,6 +13,9 @@ class Booking(models.Model):
 
     class RoomType(models.TextChoices):
         SINGLE          = "single",          "Одноместная"
+        DOUBLE          = "double",          "Двухместная"
+        FAMILY          = "family",          "Семейная"
+        DORMITORY       = "dormitory",       "Дормитори"
         DORM_2          = "dorm_2",          "Дорм 2-местный"
         DORM_4          = "dorm_4",          "Дорм 4-местный"
         DORM_6          = "dorm_6",          "Дорм 6-местный"

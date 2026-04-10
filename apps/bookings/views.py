@@ -41,6 +41,7 @@ class BookingCreateView(APIView):
     """
     Публичный эндпоинт — гость отправляет форму бронирования.
     """
+    authentication_classes = []  # Не аутентифицируем вообще — иначе просроченный токен в localStorage вызывает 401
     permission_classes = [AllowAny]
 
     @extend_schema(

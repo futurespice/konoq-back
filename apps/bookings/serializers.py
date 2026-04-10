@@ -36,6 +36,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "name":    {"required": False, "allow_blank": True},
             "surname": {"required": False, "allow_blank": True},
+            "purpose": {"required": False, "default": "other"},
             "source":  {"required": False},
             "branch":  {"required": False},
         }

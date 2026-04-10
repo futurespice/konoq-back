@@ -29,14 +29,14 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "fullname",
             "name", "surname",
             "phone", "email",
-            "checkin", "checkout", "guests", "room", "comment",
+            "checkin", "checkout", "guests", "room",
             "country", "purpose",
             "source", "branch",
         ]
         extra_kwargs = {
             "name":    {"required": False, "allow_blank": True},
             "surname": {"required": False, "allow_blank": True},
-            "purpose": {"required": False, "default": "other"},
+            "purpose": {"required": False, "default": "other", "allow_blank": True},
             "source":  {"required": False},
             "branch":  {"required": False},
         }
@@ -53,6 +53,10 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"fullname": "Укажите имя (поле fullname или name)."}
             )
+
+        # ── Пустой purpose (фронт может прислать "") → значение по умолчанию ──────
+        if not attrs.get("purpose"):
+            attrs["purpose"] = "other"
 
         # ── Проверка дат ───────────────────────────────────────────
         if attrs["checkin"] >= attrs["checkout"]:

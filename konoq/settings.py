@@ -206,3 +206,37 @@ SPECTACULAR_SETTINGS = {
 SENDPULSE_CLIENT_ID = os.getenv("SENDPULSE_CLIENT_ID", "")
 SENDPULSE_CLIENT_SECRET = os.getenv("SENDPULSE_CLIENT_SECRET", "")
 SENDPULSE_PHONE = os.getenv("SENDPULSE_PHONE", "")
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {
+            "format": "[{levelname}] {name}: {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
+    },
+    "loggers": {
+        "apps": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}

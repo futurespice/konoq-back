@@ -21,6 +21,9 @@ def _get_access_token() -> str:
     client_id = getattr(settings, "SENDPULSE_CLIENT_ID", "")
     client_secret = getattr(settings, "SENDPULSE_CLIENT_SECRET", "")
 
+    if not client_id or not client_secret:
+        raise ValueError("SENDPULSE_CLIENT_ID / SENDPULSE_CLIENT_SECRET не заданы")
+
     url = "https://api.sendpulse.com/oauth/access_token"
     payload = json.dumps({
         "grant_type": "client_credentials",
@@ -28,13 +31,23 @@ def _get_access_token() -> str:
         "client_secret": client_secret,
     }).encode("utf-8")
 
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req) as resp:
-        data = json.loads(resp.read())
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        if hasattr(exc, "read"):
+            raise RuntimeError(f"SendPulse OAuth error: {exc.read().decode()}")
+        raise
 
     token = data["access_token"]
     _token_cache["token"] = token
     _token_cache["expires_at"] = time.time() + data.get("expires_in", 3600) - 60
+    logger.info("SendPulse OAuth token получен успешно")
     return token
 
 

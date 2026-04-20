@@ -77,12 +77,10 @@ def send_wa_message(phone: str, text: str):
     url = "https://api.sendpulse.com/whatsapp/contacts/send"
     payload = json.dumps({
         "contact_id": contact_id,
-        "messages": [
-            {
-                "type": "text",
-                "text": {"body": text}
-            }
-        ]
+        "message": {
+            "type": "text",
+            "text": {"body": text}
+        }
     }).encode("utf-8")
 
     req = urllib.request.Request(

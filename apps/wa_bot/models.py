@@ -3,14 +3,20 @@ from django.db import models
 class WhatsAppSession(models.Model):
     class State(models.TextChoices):
         START = "start", "Начало"
+        AWAIT_LANG = "await_lang", "Ожидает язык"
         AWAIT_BRANCH = "await_branch", "Ожидает выбор филиала"
         AWAIT_DATES = "await_dates", "Ожидает даты заезда/выезда"
         AWAIT_GUESTS = "await_guests", "Ожидает количество гостей"
         AWAIT_ROOM = "await_room", "Ожидает тип номера"
         AWAIT_NAME = "await_name", "Ожидает имя"
 
+    class Lang(models.TextChoices):
+        RU = "ru", "Русский"
+        EN = "en", "English"
+
     phone = models.CharField(max_length=30, unique=True, verbose_name="Номер WhatsApp")
     state = models.CharField(max_length=20, choices=State.choices, default=State.START)
+    lang = models.CharField(max_length=5, choices=Lang.choices, default=Lang.RU)
     data = models.JSONField(default=dict, blank=True, verbose_name="Данные сессии")
 
     created_at = models.DateTimeField(auto_now_add=True)

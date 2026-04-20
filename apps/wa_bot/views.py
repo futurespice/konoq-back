@@ -23,29 +23,26 @@ class WhatsAppWebhookView(View):
     def post(self, request):
         try:
             body = json.loads(request.body)
-            logger.debug("SendPulse WA webhook: %s", body)
+            logger.info("SendPulse RAW: %s", json.dumps(body, ensure_ascii=False))
 
-            # SendPulse формат входящего сообщения:
-            # {
-            #   "event": "incoming",
-            #   "contact": {"phone": "996XXXXXXXXX"},
-            #   "message": {"type": "text", "text": {"body": "..."}}
-            # }
+            # SendPulse шлёт список событий
+            events = body if isinstance(body, list) else [body]
 
-            event = body.get("event")
-            if event != "incoming":
-                return JsonResponse({"status": "ignored"}, status=200)
+            for event_data in events:
+                event = event_data.get("event")
+                if event != "incoming":
+                    continue
 
-            contact = body.get("contact", {})
-            message = body.get("message", {})
+                contact = event_data.get("contact", {})
+                message = event_data.get("message", {})
 
-            phone = contact.get("phone", "")
-            msg_type = message.get("type", "")
+                phone = contact.get("phone", "")
+                msg_type = message.get("type", "")
 
-            if phone and msg_type == "text":
-                text = message.get("text", {}).get("body", "")
-                if text:
-                    handle_message(phone, text)
+                if phone and msg_type == "text":
+                    text = message.get("text", {}).get("body", "")
+                    if text:
+                        handle_message(phone, text)
 
             return JsonResponse({"status": "ok"}, status=200)
 

@@ -101,13 +101,16 @@ def _send(phone, text, session=None):
     threading.Thread(target=send_wa_message, args=(phone, text, contact_id), daemon=True).start()
 
 
-def _reset_session(session):
+def _reset_session(session, keep_lang=False):
     contact_id = session.data.get('contact_id', '')
+    lang = session.lang
     session.state = WhatsAppSession.State.START
     session.lang = WhatsAppSession.Lang.RU
     session.data = {}
     if contact_id:
         session.data['contact_id'] = contact_id
+    if keep_lang:
+        session.lang = lang
     session.save()
 
 
@@ -326,7 +329,7 @@ def _handle_name(phone, text, session):
     total_capacity = sum(r.capacity for r in rooms_of_type)
 
     if current_booked + guests_n > total_capacity:
-        _reset_session(session)
+        _reset_session(session, keep_lang=True)
         _send(phone, _t(session, 'no_availability'), session)
         return
 
@@ -346,7 +349,13 @@ def _handle_name(phone, text, session):
         status=Booking.Status.PENDING
     )
 
-    _reset_session(session)
+    # Сохраняем язык до сброса сессии
+    lang = session.lang
+    _reset_session(session, keep_lang=True)
+
+    # Сохраняем язык в данных бронирования для сигнала
+    b.wa_lang = lang
+
     _send(phone,
         _t(session, 'booking_confirmed',
            id=b.id,

@@ -205,7 +205,7 @@ SPECTACULAR_SETTINGS = {
 # SendPulse WhatsApp
 SENDPULSE_CLIENT_ID = os.getenv("SENDPULSE_CLIENT_ID", "")
 SENDPULSE_CLIENT_SECRET = os.getenv("SENDPULSE_CLIENT_SECRET", "")
-SENDPULSE_PHONE = os.getenv("SENDPULSE_PHONE", "")
+SENDPULSE_BOT_ID = os.getenv("SENDPULSE_BOT_ID", "")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOGGING = {

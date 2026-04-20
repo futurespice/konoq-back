@@ -29,18 +29,22 @@ class WhatsAppWebhookView(View):
             events = body if isinstance(body, list) else [body]
 
             for event_data in events:
-                event = event_data.get("event")
-                if event != "incoming":
+                title = event_data.get("title")
+                if title != "incoming_message":
                     continue
 
                 contact = event_data.get("contact", {})
-                message = event_data.get("message", {})
+                phone = str(contact.get("phone", ""))
 
-                phone = contact.get("phone", "")
-                msg_type = message.get("type", "")
+                # Текст вложен в info.message.channel_data.message
+                try:
+                    msg = event_data["info"]["message"]["channel_data"]["message"]
+                except (KeyError, TypeError):
+                    continue
 
+                msg_type = msg.get("type", "")
                 if phone and msg_type == "text":
-                    text = message.get("text", {}).get("body", "")
+                    text = msg.get("text", {}).get("body", "")
                     if text:
                         handle_message(phone, text)
 

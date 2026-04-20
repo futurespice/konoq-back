@@ -39,11 +39,11 @@ def _get_access_token() -> str:
 
 
 def send_wa_message(phone: str, text: str):
-    """Отправка сообщения через SendPulse WhatsApp"""
-    phone_number = getattr(settings, "SENDPULSE_PHONE", "")
+    """Отправка сообщения через SendPulse WhatsApp Bot API"""
+    bot_id = getattr(settings, "SENDPULSE_BOT_ID", "")
 
-    if not phone_number:
-        logger.warning("SENDPULSE_PHONE не настроен.")
+    if not bot_id:
+        logger.warning("SENDPULSE_BOT_ID не настроен.")
         return
 
     clean_phone = ''.join(filter(str.isdigit, phone))
@@ -54,10 +54,17 @@ def send_wa_message(phone: str, text: str):
         logger.error("Не удалось получить токен SendPulse: %s", e)
         return
 
-    url = "https://api.sendpulse.com/whatsapp/contacts/sendByPhone"
+    # Шаг 1 — получаем contact_id по номеру телефона
+    contact_id = _get_contact_id(token, bot_id, clean_phone)
+    if not contact_id:
+        logger.error("Контакт не найден в SendPulse для номера %s", clean_phone)
+        return
+
+    # Шаг 2 — отправляем сообщение
+    url = f"https://api.sendpulse.com/whatsapp/contacts/sendByContact"
     payload = json.dumps({
-        "phone": phone_number,  # твой номер отправителя
-        "contact_phone": clean_phone,  # получатель
+        "bot_id": bot_id,
+        "contact_id": contact_id,
         "messages": [
             {
                 "type": "text",
@@ -82,6 +89,30 @@ def send_wa_message(phone: str, text: str):
     except Exception as exc:
         if hasattr(exc, "read"):
             err = exc.read().decode()
-            logger.error("SendPulse WA ошибка: %s", err)
+            logger.error("SendPulse WA ошибка отправки: %s", err)
         else:
             logger.error("SendPulse WA неизвестная ошибка: %s", exc)
+
+
+def _get_contact_id(token: str, bot_id: str, phone: str) -> str | None:
+    """Ищем contact_id по номеру телефона в SendPulse"""
+    url = f"https://api.sendpulse.com/whatsapp/contacts?bot_id={bot_id}&phone={phone}"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET"
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read())
+            logger.info("SendPulse contacts response: %s", data)
+            # data может быть списком или объектом с полем data
+            contacts = data if isinstance(data, list) else data.get("data", [])
+            if contacts:
+                return contacts[0].get("id")
+    except Exception as exc:
+        if hasattr(exc, "read"):
+            logger.error("SendPulse get_contact error: %s", exc.read().decode())
+        else:
+            logger.error("SendPulse get_contact error: %s", exc)
+    return None

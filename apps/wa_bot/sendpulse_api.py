@@ -74,9 +74,8 @@ def send_wa_message(phone: str, text: str):
         return
 
     # Шаг 2 — отправляем сообщение
-    url = f"https://api.sendpulse.com/whatsapp/contacts/sendByContact"
+    url = "https://api.sendpulse.com/whatsapp/contacts/send"
     payload = json.dumps({
-        "bot_id": bot_id,
         "contact_id": contact_id,
         "messages": [
             {
@@ -108,7 +107,7 @@ def send_wa_message(phone: str, text: str):
 
 
 def _get_contact_id(token: str, bot_id: str, phone: str) -> str | None:
-    """Ищем contact_id по номеру телефона в SendPulse"""
+    """Ищем contact_id по номеру телефона в SendPulse (берём контакт с type=2 — реальный пользователь)"""
     url = f"https://api.sendpulse.com/whatsapp/contacts?bot_id={bot_id}&phone={phone}"
     req = urllib.request.Request(
         url,
@@ -118,11 +117,13 @@ def _get_contact_id(token: str, bot_id: str, phone: str) -> str | None:
     try:
         with urllib.request.urlopen(req) as resp:
             data = json.loads(resp.read())
-            logger.info("SendPulse contacts response: %s", data)
-            # data может быть списком или объектом с полем data
             contacts = data if isinstance(data, list) else data.get("data", [])
-            if contacts:
-                return contacts[0].get("id")
+            # type=2 — реальный пользователь, type=1 — сам бот
+            user_contact = next((c for c in contacts if c.get("type") == 2), None)
+            if user_contact:
+                logger.info("SendPulse contact найден: %s", user_contact.get("id"))
+                return user_contact.get("id")
+            logger.warning("SendPulse: контакт type=2 не найден среди %d записей", len(contacts))
     except Exception as exc:
         if hasattr(exc, "read"):
             logger.error("SendPulse get_contact error: %s", exc.read().decode())

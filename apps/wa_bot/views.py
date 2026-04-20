@@ -35,6 +35,7 @@ class WhatsAppWebhookView(View):
 
                 contact = event_data.get("contact", {})
                 phone = str(contact.get("phone", ""))
+                contact_id = contact.get("id", "")
 
                 # Текст вложен в info.message.channel_data.message
                 try:
@@ -43,10 +44,10 @@ class WhatsAppWebhookView(View):
                     continue
 
                 msg_type = msg.get("type", "")
-                if phone and msg_type == "text":
+                if phone and contact_id and msg_type == "text":
                     text = msg.get("text", {}).get("body", "")
                     if text:
-                        handle_message(phone, text)
+                        handle_message(phone, text, contact_id)
 
             return JsonResponse({"status": "ok"}, status=200)
 

@@ -51,15 +51,11 @@ def _get_access_token() -> str:
     return token
 
 
-def send_wa_message(phone: str, text: str):
+def send_wa_message(phone: str, text: str, contact_id: str = ""):
     """Отправка сообщения через SendPulse WhatsApp Bot API"""
-    bot_id = getattr(settings, "SENDPULSE_BOT_ID", "")
-
-    if not bot_id:
-        logger.warning("SENDPULSE_BOT_ID не настроен.")
+    if not contact_id:
+        logger.error("send_wa_message: contact_id не передан для номера %s", phone)
         return
-
-    clean_phone = ''.join(filter(str.isdigit, phone))
 
     try:
         token = _get_access_token()
@@ -67,13 +63,6 @@ def send_wa_message(phone: str, text: str):
         logger.error("Не удалось получить токен SendPulse: %s", e)
         return
 
-    # Шаг 1 — получаем contact_id по номеру телефона
-    contact_id = _get_contact_id(token, bot_id, clean_phone)
-    if not contact_id:
-        logger.error("Контакт не найден в SendPulse для номера %s", clean_phone)
-        return
-
-    # Шаг 2 — отправляем сообщение
     url = "https://api.sendpulse.com/whatsapp/contacts/send"
     payload = json.dumps({
         "contact_id": contact_id,
@@ -94,7 +83,7 @@ def send_wa_message(phone: str, text: str):
     try:
         with urllib.request.urlopen(req) as resp:
             result = json.loads(resp.read())
-            logger.info("SendPulse WA sent: %s", result)
+            logger.info("SendPulse WA sent to %s: ok", phone)
             return result
     except Exception as exc:
         if hasattr(exc, "read"):

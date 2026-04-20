@@ -5,9 +5,10 @@ from apps.bookings.models import Booking
 from .models import WhatsAppSession
 from .sendpulse_api import send_wa_message
 
-def _send(phone, text):
+def _send(phone, text, session=None):
+    contact_id = session.data.get('contact_id', '') if session else ''
     import threading
-    threading.Thread(target=send_wa_message, args=(phone, text), daemon=True).start()
+    threading.Thread(target=send_wa_message, args=(phone, text, contact_id), daemon=True).start()
 
 def _reset_session(session):
     session.state = WhatsAppSession.State.START
@@ -15,31 +16,35 @@ def _reset_session(session):
     session.save()
 
 @atomic
-def handle_message(phone: str, text: str):
+def handle_message(phone: str, text: str, contact_id: str = ""):
     text = text.strip()
     session, created = WhatsAppSession.objects.get_or_create(phone=phone)
+
+    # Всегда обновляем contact_id если он пришёл
+    if contact_id and session.data.get('contact_id') != contact_id:
+        session.data['contact_id'] = contact_id
+        session.save()
 
     if not created and session.state != WhatsAppSession.State.START:
         from django.utils import timezone
         diff = timezone.now() - session.updated_at
         if diff > datetime.timedelta(hours=3):
             _reset_session(session)
-            _send(phone, "⏳ Ваша сессия истекла (прошло более 3 часов). Давайте начнем заново.")
+            _send(phone, "⏳ Ваша сессия истекла (прошло более 3 часов). Давайте начнем заново.", session)
             return
 
     if text.lower() in ("отмена", "cancel", "стоп"):
         _reset_session(session)
-        _send(phone, "❌ Бронирование отменено.\n\nЧтобы начать заново — просто напишите нам.")
+        _send(phone, "❌ Бронирование отменено.\n\nЧтобы начать заново — просто напишите нам.", session)
         return
 
     if session.state == WhatsAppSession.State.START:
         branches = Branch.objects.filter(is_active=True).order_by("id")
         if not branches.exists():
-            _send(phone, "К сожалению, сейчас нет доступных отелей. Попробуйте позже.")
+            _send(phone, "К сожалению, сейчас нет доступных отелей. Попробуйте позже.", session)
             return
 
         if len(branches) == 1:
-            # Только один филиал — сразу выбираем его
             b = branches[0]
             session.data['branch_id'] = b.id
             session.state = WhatsAppSession.State.AWAIT_DATES
@@ -49,7 +54,8 @@ def handle_message(phone: str, text: str):
                 f"📅 Напишите даты заезда и выезда через пробел:\n"
                 f"Формат: ДД.ММ.ГГГГ ДД.ММ.ГГГГ\n"
                 f"Пример: 15.05.2026 17.05.2026\n\n"
-                f"Чтобы отменить — напишите *Отмена*"
+                f"Чтобы отменить — напишите *Отмена*",
+                session
             )
         else:
             msg = "👋 Здравствуйте! Добро пожаловать!\n\n🏨 Выберите филиал — ответьте цифрой:\n\n"
@@ -58,14 +64,14 @@ def handle_message(phone: str, text: str):
             session.data['branches'] = {str(i): b.id for i, b in enumerate(branches, 1)}
             session.state = WhatsAppSession.State.AWAIT_BRANCH
             session.save()
-            _send(phone, msg)
+            _send(phone, msg, session)
         return
 
     elif session.state == WhatsAppSession.State.AWAIT_BRANCH:
         branch_id = session.data.get('branches', {}).get(text)
         if not branch_id:
             count = len(session.data.get('branches', {}))
-            _send(phone, f"Пожалуйста, ответьте цифрой от 1 до {count}.")
+            _send(phone, f"Пожалуйста, ответьте цифрой от 1 до {count}.", session)
             return
 
         branch_name = Branch.objects.filter(id=branch_id).values_list('name', flat=True).first()
@@ -77,17 +83,17 @@ def handle_message(phone: str, text: str):
             f"📅 Напишите даты заезда и выезда через пробел:\n"
             f"Формат: ДД.ММ.ГГГГ ДД.ММ.ГГГГ\n"
             f"Пример: 15.05.2026 17.05.2026\n\n"
-            f"Чтобы отменить — напишите *Отмена*"
+            f"Чтобы отменить — напишите *Отмена*",
+            session
         )
         return
 
     elif session.state == WhatsAppSession.State.AWAIT_DATES:
         parts = text.split()
         if len(parts) != 2:
-            _send(phone, "⚠️ Пожалуйста, напишите две даты через пробел.\nПример: 15.05.2026 17.05.2026")
+            _send(phone, "⚠️ Пожалуйста, напишите две даты через пробел.\nПример: 15.05.2026 17.05.2026", session)
             return
         try:
-            # Поддерживаем оба формата: ДД.ММ.ГГГГ и ГГГГ-ММ-ДД
             def parse_date(s):
                 for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
                     try:
@@ -99,13 +105,13 @@ def handle_message(phone: str, text: str):
             checkin = parse_date(parts[0])
             checkout = parse_date(parts[1])
             if checkin >= checkout:
-                _send(phone, "⚠️ Дата выезда должна быть позже даты заезда. Попробуйте ещё раз.")
+                _send(phone, "⚠️ Дата выезда должна быть позже даты заезда. Попробуйте ещё раз.", session)
                 return
             if checkin < datetime.date.today():
-                _send(phone, "⚠️ Дата заезда не может быть в прошлом. Попробуйте ещё раз.")
+                _send(phone, "⚠️ Дата заезда не может быть в прошлом. Попробуйте ещё раз.", session)
                 return
         except ValueError:
-            _send(phone, "⚠️ Не удалось распознать даты. Используйте формат ДД.ММ.ГГГГ\nПример: 15.05.2026 17.05.2026")
+            _send(phone, "⚠️ Не удалось распознать даты. Используйте формат ДД.ММ.ГГГГ\nПример: 15.05.2026 17.05.2026", session)
             return
 
         nights = (checkout - checkin).days
@@ -118,13 +124,14 @@ def handle_message(phone: str, text: str):
             f"🛬 Заезд: {checkin.strftime('%d.%m.%Y')}\n"
             f"🛫 Выезд: {checkout.strftime('%d.%m.%Y')}\n"
             f"🌙 Ночей: {nights}\n\n"
-            f"👥 Сколько будет гостей? Напишите число."
+            f"👥 Сколько будет гостей? Напишите число.",
+            session
         )
         return
 
     elif session.state == WhatsAppSession.State.AWAIT_GUESTS:
         if not text.isdigit() or int(text) < 1 or int(text) > 20:
-            _send(phone, "⚠️ Пожалуйста, напишите число гостей от 1 до 20.")
+            _send(phone, "⚠️ Пожалуйста, напишите число гостей от 1 до 20.", session)
             return
 
         guests = int(text)
@@ -132,7 +139,7 @@ def handle_message(phone: str, text: str):
 
         rooms = Room.objects.filter(branch_id=session.data['branch_id'], is_active=True)
         if not rooms.exists():
-            _send(phone, "😔 Извините, в этом отеле сейчас нет доступных номеров.\n\nНапишите *Отмена* и попробуйте другой филиал.")
+            _send(phone, "😔 Извините, в этом отеле сейчас нет доступных номеров.\n\nНапишите *Отмена* и попробуйте другой филиал.", session)
             return
 
         types = set()
@@ -151,24 +158,24 @@ def handle_message(phone: str, text: str):
         session.data['rooms_map'] = mapping
         session.state = WhatsAppSession.State.AWAIT_ROOM
         session.save()
-        _send(phone, room_list_msg)
+        _send(phone, room_list_msg, session)
         return
 
     elif session.state == WhatsAppSession.State.AWAIT_ROOM:
         room_type = session.data.get('rooms_map', {}).get(text)
         if not room_type:
             count = len(session.data.get('rooms_map', {}))
-            _send(phone, f"⚠️ Пожалуйста, ответьте цифрой от 1 до {count}.")
+            _send(phone, f"⚠️ Пожалуйста, ответьте цифрой от 1 до {count}.", session)
             return
 
-        room_display = dict(Room.ROOM_TYPE_CHOICES).get(room_type, room_type) if hasattr(Room, 'ROOM_TYPE_CHOICES') else room_type
         session.data['room_type'] = room_type
         session.state = WhatsAppSession.State.AWAIT_NAME
         session.save()
         _send(phone,
             f"✅ Отличный выбор!\n\n"
             f"👤 Напишите ваше *имя и фамилию* через пробел.\n"
-            f"Пример: Азат Муrzaev"
+            f"Пример: Азат Муrzaev",
+            session
         )
         return
 
@@ -194,7 +201,7 @@ def handle_message(phone: str, text: str):
 
         if current_booked + guests_n > total_capacity:
             _reset_session(session)
-            _send(phone, "😔 Извините! Пока оформляли заявку, последние места уже забронировали.\n\nНапишите нам чтобы выбрать другие даты или номер.")
+            _send(phone, "😔 Извините! Пока оформляли заявку, последние места уже забронировали.\n\nНапишите нам чтобы выбрать другие даты или номер.", session)
             return
 
         nights = (checkout_obj - checkin_obj).days
@@ -222,7 +229,8 @@ def handle_message(phone: str, text: str):
             f"🛫 Выезд: {checkout_obj.strftime('%d.%m.%Y')}\n"
             f"🌙 Ночей: {nights}\n"
             f"👥 Гостей: {guests_n}\n\n"
-            f"Администратор скоро свяжется с вами для подтверждения. 🙏"
+            f"Администратор скоро свяжется с вами для подтверждения. 🙏",
+            session
         )
 
         try:
@@ -233,4 +241,4 @@ def handle_message(phone: str, text: str):
         return
 
     _reset_session(session)
-    _send(phone, "Напишите нам, чтобы начать бронирование. 😊")
+    _send(phone, "Напишите нам, чтобы начать бронирование. 😊", session)

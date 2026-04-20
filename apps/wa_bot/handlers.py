@@ -3,7 +3,7 @@ from django.db.transaction import atomic
 from apps.rooms.models import Branch, Room
 from apps.bookings.models import Booking
 from .models import WhatsAppSession
-from .meta_api import send_wa_message
+from .sendpulse_api import send_wa_message
 
 def _send(phone, text):
     import threading

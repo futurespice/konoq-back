@@ -20,7 +20,7 @@ def notify_whatsapp_on_confirm(sender, instance, **kwargs):
         if instance.source == Booking.Source.WHATSAPP:
             def _send():
                 try:
-                    from apps.wa_bot.meta_api import send_wa_message
+                    from apps.wa_bot.sendpulse_api import send_wa_message
                     branch_name = instance.branch.name if instance.branch else 'Konoq'
                     msg = f"🎉 Ваша бронь #{instance.id} подтверждена администратором!\n\nОтель: {branch_name}\nДаты: {instance.checkin} — {instance.checkout}\nГости: {instance.guests}\n\nС нетерпением ждём вас! 😊"
                     send_wa_message(instance.phone, msg)
@@ -33,7 +33,7 @@ def notify_whatsapp_on_confirm(sender, instance, **kwargs):
         if instance.source == Booking.Source.WHATSAPP:
             def _send_cancel():
                 try:
-                    from apps.wa_bot.meta_api import send_wa_message
+                    from apps.wa_bot.sendpulse_api import send_wa_message
                     msg = f"😔 К сожалению, менеджер отклонил вашу заявку #{instance.id} (нет мест на выбранные даты).\n\nНапишите любое сообщение, чтобы выбрать другие даты."
                     send_wa_message(instance.phone, msg)
                 except Exception as e:

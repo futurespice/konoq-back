@@ -202,7 +202,7 @@ SPECTACULAR_SETTINGS = {
     ],
 }
 
-# ── WhatsApp Bot (Meta Cloud API) ─────────────────────────────────────────────
-WA_TOKEN           = env("WA_TOKEN",           "")
-WA_PHONE_NUMBER_ID = env("WA_PHONE_NUMBER_ID", "")
-WA_VERIFY_TOKEN    = env("WA_VERIFY_TOKEN",    "")
+# SendPulse WhatsApp
+SENDPULSE_CLIENT_ID = os.getenv("SENDPULSE_CLIENT_ID", "")
+SENDPULSE_CLIENT_SECRET = os.getenv("SENDPULSE_CLIENT_SECRET", "")
+SENDPULSE_PHONE = os.getenv("SENDPULSE_PHONE", "")

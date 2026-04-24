@@ -80,3 +80,34 @@ class Room(models.Model):
             f"{self.get_room_type_display()}{bath} · "
             f"{self.price_per_night} сом{per}"
         )
+
+
+class Bed(models.Model):
+    """
+    Конкретная шконка/кровать внутри Room.
+
+    Для приватных комнат (single, double_together, double_separate) создаётся
+    столько Bed сколько capacity у Room — но бронируется "вся комната" как
+    один набор шконок через флаг Booking.is_private_booking (см. services).
+    """
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name="beds",
+        verbose_name="Комната",
+    )
+    label = models.CharField(
+        max_length=20,
+        verbose_name="Метка",
+        help_text="Идентификатор шконки внутри комнаты: '1', '2', 'нижняя', 'у окна'",
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Активна")
+
+    class Meta:
+        verbose_name = "Шконка"
+        verbose_name_plural = "Шконки"
+        unique_together = ("room", "label")
+        ordering = ["room", "label"]
+
+    def __str__(self):
+        return f"{self.room} / {self.label}"

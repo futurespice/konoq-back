@@ -16,24 +16,7 @@ from .serializers import (
     RoomAvailabilitySerializer,
     RoomWriteSerializer,
 )
-from apps.bookings.models import Booking
-
-
-from django.db.models import Sum
-
-def _get_booked_guests(checkin: date, checkout: date, branch_id=None) -> dict:
-    """
-    Возвращает dict {room_type: sum_of_guests} в указанный период.
-    """
-    qs = Booking.objects.filter(
-        status__in=[Booking.Status.CONFIRMED, Booking.Status.PENDING],
-        checkin__lt=checkout,
-        checkout__gt=checkin,
-    )
-    if branch_id:
-        qs = qs.filter(branch_id=branch_id)
-    aggs = qs.values("room").annotate(total_guests=Sum("guests"))
-    return {row["room"]: row["total_guests"] for row in aggs}
+from apps.bookings.selectors import get_booked_guests_by_type
 
 
 # ── Branch ────────────────────────────────────────────────────────────────────
@@ -125,7 +108,9 @@ class RoomListView(APIView):
             try:
                 checkin  = date.fromisoformat(checkin_str)
                 checkout = date.fromisoformat(checkout_str)
-                booked_guests_by_type = _get_booked_guests(checkin, checkout, branch_id)
+                booked_guests_by_type = get_booked_guests_by_type(
+                    checkin=checkin, checkout=checkout, branch_id=branch_id,
+                )
                 
                 capacity_by_type = {}
                 for room in rooms:

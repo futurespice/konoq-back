@@ -11,12 +11,15 @@ from drf_spectacular.views import (
     SpectacularRedocView,
 )
 
+from apps.bookings.views import AvailabilityView
+
 urlpatterns = [
     # Admin
     path("admin/", admin.site.urls),
 
     # API
     path("api/auth/",     include("apps.users.urls")),
+    path("api/availability/", AvailabilityView.as_view(), name="availability"),
     path("api/bookings/", include("apps.bookings.urls")),
     path("api/rooms/",    include("apps.rooms.urls")),
     path("api/tours/",    include("apps.tours.urls")),

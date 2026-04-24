@@ -102,6 +102,12 @@ class Booking(models.Model):
         verbose_name="Итоговая сумма"
     )
 
+    is_private_booking = models.BooleanField(
+        default=False,
+        verbose_name="Забронировано целой комнатой",
+        help_text="Группа забрала комнату целиком — чужих не подсаживаем",
+    )
+
     # ── Служебные поля ────────────────────────────────────────────────────────
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
     updated_at = models.DateTimeField(auto_now=True,     verbose_name="Обновлено")
@@ -123,25 +129,41 @@ class Booking(models.Model):
         """Количество ночей."""
         return (self.checkout - self.checkin).days
 
-    def save(self, *args, **kwargs):
-        from decimal import Decimal
-        if not self.pk and (not self.price_per_night or not self.total_price):
-            from apps.rooms.models import Room
-            qs = Room.objects.filter(room_type=self.room, is_active=True)
-            if self.branch_id:
-                room_obj = qs.filter(branch_id=self.branch_id).first()
-            else:
-                room_obj = qs.first()
-            
-            if room_obj:
-                price = room_obj.price_per_night
-                if room_obj.price_is_per_bed:
-                    price *= self.guests
-                if not self.price_per_night:
-                    self.price_per_night = price
-                if not self.total_price:
-                    self.total_price = price * Decimal(max(self.nights, 0))
-        super().save(*args, **kwargs)
+
+class BookingBed(models.Model):
+    """
+    Привязка брони к конкретной шконке.
+
+    checkin/checkout денормализованы (копия из Booking) для индексного
+    поиска пересечений без JOIN.
+    price_per_night — snapshot Room.price_per_night на момент создания брони.
+    """
+    booking = models.ForeignKey(
+        "bookings.Booking",
+        on_delete=models.CASCADE,
+        related_name="beds",
+        verbose_name="Бронь",
+    )
+    bed = models.ForeignKey(
+        "rooms.Bed",
+        on_delete=models.PROTECT,
+        related_name="bookings",
+        verbose_name="Шконка",
+    )
+    checkin = models.DateField(verbose_name="Дата заезда")
+    checkout = models.DateField(verbose_name="Дата выезда")
+    price_per_night = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        verbose_name="Цена за ночь (snapshot)",
+    )
+
+    class Meta:
+        verbose_name = "Шконка в брони"
+        verbose_name_plural = "Шконки в бронях"
+        indexes = [
+            models.Index(fields=["bed", "checkin", "checkout"]),
+            models.Index(fields=["checkin", "checkout"]),
+        ]
 
 
 class ICalLink(models.Model):

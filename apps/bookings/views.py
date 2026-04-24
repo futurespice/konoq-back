@@ -1,10 +1,12 @@
 """
 apps/bookings/views.py
-"""
-import asyncio
-import logging
 
-from django.db.models import Q
+Только HTTP-каркас: парсинг query params, вызов сериализаторов, вызов
+services/selectors, формирование Response. Бизнес-логика и работа с БД —
+в services.py / selectors.py.
+"""
+from datetime import date
+
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -14,34 +16,37 @@ from drf_spectacular.utils import (
 )
 from drf_spectacular.types import OpenApiTypes
 
+from apps.rooms.models import Bed
+
 from .models import Booking
+from .selectors import (
+    get_availability_summary,
+    get_booking_by_id,
+    get_booking_stats,
+    list_bookings,
+)
 from .serializers import (
     BookingCreateSerializer,
     BookingListSerializer,
+    BookingPreviewSerializer,
     BookingStatusUpdateSerializer,
     BookingStatsSerializer,
+    BookingV2CreateSerializer,
+    BookingV2OutSerializer,
 )
-
-logger = logging.getLogger(__name__)
-
-
-def _send_tg_notification(booking):
-    """Отправляет Telegram-уведомление о новом бронировании (в фоне)."""
-    import threading
-    def _run():
-        try:
-            from apps.tg_bot.bot import notify_owner_new_booking
-            asyncio.run(notify_owner_new_booking(booking))
-        except Exception as exc:
-            logger.warning("Не удалось отправить TG-уведомление: %s", exc)
-    threading.Thread(target=_run, daemon=True).start()
+from .services import (
+    auto_assign_beds,
+    calculate_booking_total,
+    create_booking_with_beds,
+    delete_booking,
+    notify_new_booking,
+    update_booking_status,
+)
 
 
 class BookingCreateView(APIView):
-    """
-    Публичный эндпоинт — гость отправляет форму бронирования.
-    """
-    authentication_classes = []  # Не аутентифицируем вообще — иначе просроченный токен в localStorage вызывает 401
+    """Публичный эндпоинт — гость отправляет форму бронирования."""
+    authentication_classes = []  # Не аутентифицируем — иначе просроченный токен в localStorage вызовет 401
     permission_classes = [AllowAny]
 
     @extend_schema(
@@ -82,8 +87,7 @@ class BookingCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         booking = serializer.save()
 
-        # Уведомляем владельца в Telegram
-        _send_tg_notification(booking)
+        notify_new_booking(booking)
 
         return Response(
             BookingListSerializer(booking).data,
@@ -92,9 +96,7 @@ class BookingCreateView(APIView):
 
 
 class BookingListView(APIView):
-    """
-    Список всех бронирований — только для авторизованных менеджеров.
-    """
+    """Список всех бронирований — только для авторизованных менеджеров."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -110,33 +112,13 @@ class BookingListView(APIView):
         responses={200: BookingListSerializer(many=True)},
     )
     def get(self, request):
-        qs = Booking.objects.select_related("branch").all()
-
-        status_filter = request.query_params.get("status")
-        if status_filter:
-            qs = qs.filter(status=status_filter)
-
-        source_filter = request.query_params.get("source")
-        if source_filter:
-            qs = qs.filter(source=source_filter)
-
-        branch_filter = request.query_params.get("branch")
-        if branch_filter:
-            qs = qs.filter(branch_id=branch_filter)
-
-        search = request.query_params.get("search")
-        if search:
-            qs = qs.filter(
-                Q(name__icontains=search)    |
-                Q(surname__icontains=search) |
-                Q(phone__icontains=search)   |
-                Q(country__icontains=search)
-            )
-
-        checkin_from = request.query_params.get("checkin")
-        if checkin_from:
-            qs = qs.filter(checkin__gte=checkin_from)
-
+        qs = list_bookings(
+            status=request.query_params.get("status"),
+            source=request.query_params.get("source"),
+            branch_id=request.query_params.get("branch"),
+            search=request.query_params.get("search"),
+            checkin_from=request.query_params.get("checkin"),
+        )
         return Response(BookingListSerializer(qs, many=True).data)
 
 
@@ -144,19 +126,13 @@ class BookingDetailView(APIView):
     """Получить / обновить статус / удалить одно бронирование."""
     permission_classes = [IsAuthenticated]
 
-    def _get_booking(self, pk):
-        try:
-            return Booking.objects.select_related("branch").get(pk=pk)
-        except Booking.DoesNotExist:
-            return None
-
     @extend_schema(
         tags=["bookings"],
         summary="Детали бронирования",
         responses={200: BookingListSerializer, 404: OpenApiResponse(description="Не найдено")},
     )
     def get(self, request, pk):
-        booking = self._get_booking(pk)
+        booking = get_booking_by_id(pk=pk)
         if not booking:
             return Response({"detail": "Не найдено."}, status=status.HTTP_404_NOT_FOUND)
         return Response(BookingListSerializer(booking).data)
@@ -176,12 +152,15 @@ class BookingDetailView(APIView):
         ],
     )
     def patch(self, request, pk):
-        booking = self._get_booking(pk)
-        if not booking:
-            return Response({"detail": "Не найдено."}, status=status.HTTP_404_NOT_FOUND)
-        serializer = BookingStatusUpdateSerializer(booking, data=request.data, partial=True)
+        serializer = BookingStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        try:
+            booking = update_booking_status(
+                booking_id=pk,
+                new_status=serializer.validated_data["status"],
+            )
+        except Booking.DoesNotExist:
+            return Response({"detail": "Не найдено."}, status=status.HTTP_404_NOT_FOUND)
         return Response(BookingListSerializer(booking).data)
 
     @extend_schema(
@@ -190,10 +169,8 @@ class BookingDetailView(APIView):
         responses={204: OpenApiResponse(description="Удалено"), 404: OpenApiResponse(description="Не найдено")},
     )
     def delete(self, request, pk):
-        booking = self._get_booking(pk)
-        if not booking:
+        if not delete_booking(booking_id=pk):
             return Response({"detail": "Не найдено."}, status=status.HTTP_404_NOT_FOUND)
-        booking.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -210,16 +187,156 @@ class BookingStatsView(APIView):
         responses={200: BookingStatsSerializer},
     )
     def get(self, request):
-        qs = Booking.objects.all()
-
-        branch_id = request.query_params.get("branch")
-        if branch_id:
-            qs = qs.filter(branch_id=branch_id)
-
-        data = {
-            "total":     qs.count(),
-            "pending":   qs.filter(status=Booking.Status.PENDING).count(),
-            "confirmed": qs.filter(status=Booking.Status.CONFIRMED).count(),
-            "cancelled": qs.filter(status=Booking.Status.CANCELLED).count(),
-        }
+        data = get_booking_stats(branch_id=request.query_params.get("branch"))
         return Response(data)
+
+
+# ── Bed-level API v2 (Этап 2b) ───────────────────────────────────────────────
+
+class AvailabilityView(APIView):
+    """GET /api/availability/?branch=<id>&checkin=YYYY-MM-DD&checkout=YYYY-MM-DD"""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["bookings"],
+        summary="Сводка свободных шконок по типам номеров",
+        parameters=[
+            OpenApiParameter("branch", OpenApiTypes.INT, required=True),
+            OpenApiParameter("checkin", OpenApiTypes.DATE, required=True),
+            OpenApiParameter("checkout", OpenApiTypes.DATE, required=True),
+        ],
+        responses={200: OpenApiResponse(description="Список options по room_type")},
+    )
+    def get(self, request):
+        try:
+            branch_id = int(request.query_params.get("branch", ""))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Параметр branch обязателен и должен быть числом."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            checkin = date.fromisoformat(request.query_params.get("checkin", ""))
+            checkout = date.fromisoformat(request.query_params.get("checkout", ""))
+        except ValueError:
+            return Response(
+                {"detail": "checkin и checkout должны быть в формате YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if checkin >= checkout:
+            return Response(
+                {"detail": "checkout должен быть позже checkin."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = get_availability_summary(
+            branch_id=branch_id, checkin=checkin, checkout=checkout,
+        )
+        return Response(data)
+
+
+class BookingV2PreviewView(APIView):
+    """POST /api/bookings/v2/preview/ — автоподбор без создания."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["bookings"],
+        summary="Preview автоподбора шконок",
+        request=BookingPreviewSerializer,
+        responses={
+            200: OpenApiResponse(description="Список beds + total_price + nights"),
+            400: OpenApiResponse(description="Нет свободных мест или ошибка валидации"),
+        },
+    )
+    def post(self, request):
+        serializer = BookingPreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        vd = serializer.validated_data
+
+        beds = auto_assign_beds(
+            branch_id=vd["branch"].id,
+            room_type=vd["room_type"],
+            checkin=vd["checkin"],
+            checkout=vd["checkout"],
+            guests=vd["guests"],
+            want_private_room=vd.get("want_private_room", False),
+        )
+
+        nights = (vd["checkout"] - vd["checkin"]).days
+        total = calculate_booking_total(beds=beds, nights=nights)
+
+        return Response({
+            "beds": [
+                {
+                    "id": b.id,
+                    "room_number": b.room.number,
+                    "room_type": b.room.room_type,
+                    "label": b.label,
+                }
+                for b in beds
+            ],
+            "total_price": total,
+            "nights": nights,
+            "can_confirm": True,
+        })
+
+
+class BookingV2CreateView(APIView):
+    """POST /api/bookings/v2/ — создание брони с привязкой к конкретным шконкам."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["bookings"],
+        summary="Создать бронирование (bed-level)",
+        request=BookingV2CreateSerializer,
+        responses={
+            201: BookingV2OutSerializer,
+            400: OpenApiResponse(description="Ошибка валидации или нет мест"),
+        },
+    )
+    def post(self, request):
+        serializer = BookingV2CreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        vd = serializer.validated_data
+
+        branch = vd["branch"]
+
+        if vd.get("bed_ids"):
+            beds = vd["_beds"]
+            is_private = False
+        else:
+            beds = auto_assign_beds(
+                branch_id=branch.id,
+                room_type=vd["room_type"],
+                checkin=vd["checkin"],
+                checkout=vd["checkout"],
+                guests=vd["guests"],
+                want_private_room=vd.get("want_private_room", False),
+            )
+            is_private = vd.get("want_private_room", False)
+
+        booking = create_booking_with_beds(
+            branch_id=branch.id,
+            beds=beds,
+            checkin=vd["checkin"],
+            checkout=vd["checkout"],
+            is_private_booking=is_private,
+            name=vd["name"],
+            surname=vd.get("surname", ""),
+            phone=vd["phone"],
+            email=vd.get("email", ""),
+            country=vd["country"],
+            purpose=vd.get("purpose", Booking.Purpose.OTHER),
+            comment=vd.get("comment", ""),
+            source=vd.get("source", Booking.Source.DIRECT),
+        )
+
+        notify_new_booking(booking)
+
+        return Response(
+            BookingV2OutSerializer(booking).data,
+            status=status.HTTP_201_CREATED,
+        )

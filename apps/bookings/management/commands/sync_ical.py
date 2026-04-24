@@ -4,7 +4,8 @@ import requests
 import icalendar
 from django.core.management.base import BaseCommand
 import django.utils.timezone as tz
-from apps.bookings.models import ICalLink, Booking
+from apps.bookings.models import ICalLink
+from apps.bookings.services import create_ical_booking
 
 logger = logging.getLogger(__name__)
 
@@ -43,25 +44,17 @@ class Command(BaseCommand):
                         continue
                         
                     uid = str(component.get('uid'))
-                    
-                    # Prevent duplicates
-                    exists = Booking.objects.filter(comment__contains=uid).exists()
-                    if not exists:
-                        Booking.objects.create(
-                            name=f"Cron: {link.get_source_display()}",
-                            surname="",
-                            phone="000-OTA-000",
-                            checkin=start_date,
-                            checkout=end_date,
-                            guests=1, 
-                            room=link.room_type,
-                            branch=link.branch,
-                            source=link.source,
-                            status=Booking.Status.CONFIRMED,
-                            comment=f"Auto-synced UID: {uid}",
-                            country="Неизвестно",
-                            purpose=Booking.Purpose.OTHER
-                        )
+
+                    created = create_ical_booking(
+                        link_branch_id=link.branch_id,
+                        room_type=link.room_type,
+                        checkin=start_date,
+                        checkout=end_date,
+                        uid=uid,
+                        source=link.source,
+                        source_display=link.get_source_display(),
+                    )
+                    if created:
                         new_bookings += 1
                 
                 link.last_synced_at = tz.now()

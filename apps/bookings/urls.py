@@ -2,13 +2,22 @@
 apps/bookings/urls.py
 """
 from django.urls import path
-from .views import BookingCreateView, BookingListView, BookingDetailView, BookingStatsView
+from .views import (
+    BookingCreateView,
+    BookingDetailView,
+    BookingListView,
+    BookingStatsView,
+    BookingV2CreateView,
+    BookingV2PreviewView,
+)
 from .ical_views import ICalLinkListView, ICalLinkDetailView, ICalExportView, ICalSyncView
 
 urlpatterns = [
     path("",          BookingListView.as_view(),   name="booking-list"),    # GET  /api/bookings/
     path("create/",   BookingCreateView.as_view(),  name="booking-create"),  # POST /api/bookings/create/
     path("stats/",    BookingStatsView.as_view(),   name="booking-stats"),   # GET  /api/bookings/stats/
+    path("v2/",         BookingV2CreateView.as_view(),  name="booking-v2-create"),   # POST /api/bookings/v2/
+    path("v2/preview/", BookingV2PreviewView.as_view(), name="booking-v2-preview"),  # POST /api/bookings/v2/preview/
     path("<int:pk>/", BookingDetailView.as_view(),  name="booking-detail"),  # GET/PATCH/DELETE /api/bookings/1/
     
     # iCal

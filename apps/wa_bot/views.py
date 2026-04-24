@@ -3,9 +3,11 @@ import logging
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views import View
+from django.db import IntegrityError
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from .handlers import handle_message
+from .models import WhatsAppProcessedEvent
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +48,22 @@ class WhatsAppWebhookView(View):
                 msg_type = msg.get("type", "")
                 if phone and contact_id and msg_type == "text":
                     text = msg.get("text", {}).get("body", "")
-                    if text:
-                        handle_message(phone, text, contact_id)
+                    if not text:
+                        continue
+
+                    event_id = str(event_data.get("id") or "") or f"{msg.get('id', '')}:{contact_id}"
+                    if event_id == ":":
+                        logger.warning("SendPulse event без id — пропускаем идемпотентность")
+                    else:
+                        try:
+                            _, created = WhatsAppProcessedEvent.objects.get_or_create(event_id=event_id)
+                        except IntegrityError:
+                            created = False
+                        if not created:
+                            logger.info("SendPulse WA duplicate event skipped: %s", event_id)
+                            continue
+
+                    handle_message(phone, text, contact_id)
 
             return JsonResponse({"status": "ok"}, status=200)
 

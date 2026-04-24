@@ -64,8 +64,8 @@ class ICalExportView(APIView):
 
     @extend_schema(tags=["ical"], summary="Скачать .ics календарь типа номера", responses={200: OpenApiResponse(description="Файл .ics")})
     def get(self, request, branch_id, room_type):
-        from apps.rooms.views import _get_booked_guests
-        
+        from apps.bookings.selectors import get_booked_guests_by_type
+
         cal = icalendar.Calendar()
         cal.add('prodid', '-//Konoq Hostel Sync//konoq.com//')
         cal.add('version', '2.0')
@@ -86,9 +86,11 @@ class ICalExportView(APIView):
             unavailable_dates = []
             curr = today
             while curr <= end_date:
-                # _get_booked_guests calculates booked capacity for exact dates.
-                # However, it expects checkin and checkout. If we pass 1 day window:
-                booked = _get_booked_guests(curr, curr + datetime.timedelta(days=1), branch_id)
+                booked = get_booked_guests_by_type(
+                    checkin=curr,
+                    checkout=curr + datetime.timedelta(days=1),
+                    branch_id=branch_id,
+                )
                 if booked.get(room_type, 0) >= total_capacity:
                     unavailable_dates.append(curr)
                 curr += datetime.timedelta(days=1)
@@ -132,7 +134,8 @@ class ICalSyncView(APIView):
 
     @extend_schema(tags=["ical"], summary="Принудительно синхронизировать все календари", responses={200: OpenApiResponse(description="Success")})
     def post(self, request):
-        from apps.bookings.models import ICalLink, Booking
+        from apps.bookings.models import ICalLink
+        from apps.bookings.services import create_ical_booking
         import django.utils.timezone as tz
 
         links = ICalLink.objects.all()
@@ -144,48 +147,38 @@ class ICalSyncView(APIView):
                 resp = requests.get(link.url, timeout=10)
                 if resp.status_code != 200:
                     continue
-                
+
                 cal = icalendar.Calendar.from_ical(resp.content)
                 for component in cal.walk('vevent'):
                     dtstart = component.get('dtstart')
                     dtend = component.get('dtend')
                     if not dtstart or not dtend:
                         continue
-                    
+
                     start_date = dtstart.dt
                     end_date = dtend.dt
-                    
+
                     if isinstance(start_date, datetime.datetime):
                         start_date = start_date.date()
                     if isinstance(end_date, datetime.datetime):
                         end_date = end_date.date()
-                        
+
                     if start_date < datetime.date.today():
-                        continue # Ignore past events
-                        
+                        continue
+
                     uid = str(component.get('uid'))
-                    
-                    # Create generic booking block
-                    # We use comment to store the UID so we don't duplicate
-                    exists = Booking.objects.filter(comment__contains=uid).exists()
-                    if not exists:
-                        Booking.objects.create(
-                            name=f"Синхронизация {link.get_source_display()}",
-                            surname="",
-                            phone="",
-                            checkin=start_date,
-                            checkout=end_date,
-                            guests=1, # One unit blocked
-                            room=link.room_type,
-                            branch=link.branch,
-                            source=link.source,
-                            status=Booking.Status.CONFIRMED,
-                            comment=f"Auto-synced UID: {uid}",
-                            country="Неизвестно",
-                            purpose=Booking.Purpose.OTHER
-                        )
+                    created = create_ical_booking(
+                        link_branch_id=link.branch_id,
+                        room_type=link.room_type,
+                        checkin=start_date,
+                        checkout=end_date,
+                        uid=uid,
+                        source=link.source,
+                        source_display=link.get_source_display(),
+                    )
+                    if created:
                         new_bookings += 1
-                
+
                 link.last_synced_at = tz.now()
                 link.save()
                 synced_count += 1

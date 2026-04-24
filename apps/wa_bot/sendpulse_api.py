@@ -37,7 +37,7 @@ def _get_access_token() -> str:
         method="POST"
     )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
     except Exception as exc:
         if hasattr(exc, "read"):
@@ -81,7 +81,7 @@ def send_wa_message(phone: str, text: str, contact_id: str = ""):
         method="POST"
     )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             result = json.loads(resp.read())
             logger.info("SendPulse WA sent to %s: ok", phone)
             return result
@@ -102,7 +102,7 @@ def _get_contact_id(token: str, bot_id: str, phone: str) -> str | None:
         method="GET"
     )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
             contacts = data if isinstance(data, list) else data.get("data", [])
             # type=2 — реальный пользователь, type=1 — сам бот

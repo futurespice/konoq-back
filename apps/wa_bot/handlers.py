@@ -1,9 +1,21 @@
 import datetime
-from django.db.transaction import atomic
-from apps.rooms.models import Branch, Room
+import logging
+
+from rest_framework.exceptions import ValidationError
+
 from apps.bookings.models import Booking
+from apps.bookings.selectors import get_availability_summary
+from apps.bookings.services import (
+    auto_assign_beds,
+    calculate_booking_total,
+    create_booking_with_beds,
+)
+from apps.rooms.models import Bed, Branch, Room
+
 from .models import WhatsAppSession
 from .sendpulse_api import send_wa_message
+
+logger = logging.getLogger(__name__)
 
 # Тексты на двух языках
 T = {
@@ -27,9 +39,41 @@ T = {
         "dates_confirmed": "✅ Даты:\n🛬 Заезд: {checkin}\n🛫 Выезд: {checkout}\n🌙 Ночей: {nights}\n\n👥 Сколько будет гостей? Напишите число.",
         "guests_invalid": "⚠️ Напишите число гостей от 1 до 20.",
         "no_rooms": "😔 Извините, в этом отеле нет доступных номеров.\nНапишите *Отмена*.",
+        "ask_private": (
+            "🔑 Хотите забронировать комнату целиком (чужих не подсадят)?\n\n"
+            "1️⃣ Да, приватно\n"
+            "2️⃣ Нет, обычная бронь"
+        ),
+        "private_invalid": "⚠️ Ответьте 1 (да) или 2 (нет).",
         "select_room": "🛏 Выберите тип номера — ответьте цифрой:",
         "room_bath_private": "🚿 свой санузел",
         "room_bath_shared": "🚿 общий санузел",
+        "preview_dorm": (
+            "✨ Подобрали: комната №{room_number}, {n_beds} шконок(и).\n"
+            "💰 Цена: {total} {currency} за {nights} ночей.\n\n"
+            "1️⃣ Подтвердить\n"
+            "2️⃣ Выбрать другую комнату\n"
+            "3️⃣ Отмена"
+        ),
+        "preview_private": (
+            "✨ Подобрали: вся комната №{room_number} ({n_beds} мест).\n"
+            "💰 Цена: {total} {currency} за {nights} ночей.\n\n"
+            "1️⃣ Подтвердить\n"
+            "2️⃣ Выбрать другую комнату\n"
+            "3️⃣ Отмена"
+        ),
+        "private_fallback": (
+            "😔 Сейчас нет свободных комнат этого типа целиком на ваши даты.\n\n"
+            "✨ Можете взять {n_beds} шконок(и) (обычный подбор):\n"
+            "💰 {total} {currency} за {nights} ночей.\n\n"
+            "1️⃣ Подтвердить\n"
+            "2️⃣ Отмена"
+        ),
+        "no_availability_dates": "😔 На эти даты мест нет.\nНапишите нам, чтобы подобрать другие.",
+        "choose_room": "🏠 Выберите комнату — ответьте цифрой:",
+        "room_option": "{idx}️⃣ №{number} · свободно {free_beds}",
+        "bed_confirm_invalid": "⚠️ Ответьте 1, 2 или 3.",
+        "bed_confirm_invalid_2": "⚠️ Ответьте 1 или 2.",
         "ask_name": "✅ Отличный выбор!\n\n👤 Напишите ваше *имя и фамилию* через пробел.\nПример: Азат Мурзаев",
         "no_availability": "😔 Извините! Пока оформляли заявку, последние места уже забронировали.\nНапишите нам, чтобы выбрать другие даты.",
         "booking_confirmed": (
@@ -66,9 +110,41 @@ T = {
         "dates_confirmed": "✅ Dates:\n🛬 Check-in: {checkin}\n🛫 Check-out: {checkout}\n🌙 Nights: {nights}\n\n👥 How many guests? Enter a number.",
         "guests_invalid": "⚠️ Please enter number of guests from 1 to 20.",
         "no_rooms": "😔 Sorry, no rooms available in this hotel.\nWrite *Cancel* to go back.",
+        "ask_private": (
+            "🔑 Want to book the whole room (no one else added)?\n\n"
+            "1️⃣ Yes, private\n"
+            "2️⃣ No, regular booking"
+        ),
+        "private_invalid": "⚠️ Reply 1 (yes) or 2 (no).",
         "select_room": "🛏 Select room type — reply with a number:",
         "room_bath_private": "🚿 private bathroom",
         "room_bath_shared": "🚿 shared bathroom",
+        "preview_dorm": (
+            "✨ We picked: room #{room_number}, {n_beds} bed(s).\n"
+            "💰 Price: {total} {currency} for {nights} nights.\n\n"
+            "1️⃣ Confirm\n"
+            "2️⃣ Choose another room\n"
+            "3️⃣ Cancel"
+        ),
+        "preview_private": (
+            "✨ We picked: entire room #{room_number} ({n_beds} beds).\n"
+            "💰 Price: {total} {currency} for {nights} nights.\n\n"
+            "1️⃣ Confirm\n"
+            "2️⃣ Choose another room\n"
+            "3️⃣ Cancel"
+        ),
+        "private_fallback": (
+            "😔 No whole rooms of this type are free on your dates.\n\n"
+            "✨ You can take {n_beds} bed(s) (shared):\n"
+            "💰 {total} {currency} for {nights} nights.\n\n"
+            "1️⃣ Confirm\n"
+            "2️⃣ Cancel"
+        ),
+        "no_availability_dates": "😔 No free spots on these dates.\nWrite us to try other dates.",
+        "choose_room": "🏠 Pick a room — reply with a number:",
+        "room_option": "{idx}️⃣ #{number} · {free_beds} free",
+        "bed_confirm_invalid": "⚠️ Reply 1, 2 or 3.",
+        "bed_confirm_invalid_2": "⚠️ Reply 1 or 2.",
         "ask_name": "✅ Great choice!\n\n👤 Please enter your *first and last name* separated by a space.\nExample: John Smith",
         "no_availability": "😔 Sorry! The last spots were just booked while we were processing.\nWrite us to choose different dates.",
         "booking_confirmed": (
@@ -97,8 +173,10 @@ def _t(session, key, **kwargs):
 
 def _send(phone, text, session=None):
     contact_id = session.data.get('contact_id', '') if session else ''
-    import threading
-    threading.Thread(target=send_wa_message, args=(phone, text, contact_id), daemon=True).start()
+    try:
+        send_wa_message(phone, text, contact_id)
+    except Exception as exc:
+        logger.error("WA send failed phone=%s: %s", phone, exc)
 
 
 def _reset_session(session, keep_lang=False):
@@ -123,17 +201,14 @@ def _parse_date(s):
     raise ValueError(f"Invalid date: {s}")
 
 
-@atomic
 def handle_message(phone: str, text: str, contact_id: str = ""):
     text = text.strip()
     session, created = WhatsAppSession.objects.get_or_create(phone=phone)
 
-    # Всегда обновляем contact_id
     if contact_id and session.data.get('contact_id') != contact_id:
         session.data['contact_id'] = contact_id
         session.save()
 
-    # Проверка истечения сессии
     if not created and session.state != WhatsAppSession.State.START:
         from django.utils import timezone
         if timezone.now() - session.updated_at > datetime.timedelta(hours=3):
@@ -141,13 +216,11 @@ def handle_message(phone: str, text: str, contact_id: str = ""):
             _send(phone, _t(session, 'expired'), session)
             return
 
-    # Отмена
     if text.lower() in _t(session, 'cancel_words'):
         _reset_session(session)
         _send(phone, _t(session, 'cancelled'), session)
         return
 
-    # Шаг 0 — выбор языка
     if session.state == WhatsAppSession.State.START:
         session.state = WhatsAppSession.State.AWAIT_LANG
         session.save()
@@ -160,7 +233,6 @@ def handle_message(phone: str, text: str, contact_id: str = ""):
         )
         return
 
-    # Шаг 1 — обработка языка
     if session.state == WhatsAppSession.State.AWAIT_LANG:
         if text == '1':
             session.lang = WhatsAppSession.Lang.RU
@@ -173,15 +245,20 @@ def handle_message(phone: str, text: str, contact_id: str = ""):
         _start_booking(phone, session)
         return
 
-    # Дальнейшие шаги на выбранном языке
     if session.state == WhatsAppSession.State.AWAIT_BRANCH:
         _handle_branch(phone, text, session)
     elif session.state == WhatsAppSession.State.AWAIT_DATES:
         _handle_dates(phone, text, session)
     elif session.state == WhatsAppSession.State.AWAIT_GUESTS:
         _handle_guests(phone, text, session)
+    elif session.state == WhatsAppSession.State.AWAIT_PRIVATE_CHOICE:
+        _handle_private_choice(phone, text, session)
     elif session.state == WhatsAppSession.State.AWAIT_ROOM:
         _handle_room(phone, text, session)
+    elif session.state == WhatsAppSession.State.AWAIT_BED_CONFIRM:
+        _handle_bed_confirm(phone, text, session)
+    elif session.state == WhatsAppSession.State.AWAIT_ROOM_CHOICE:
+        _handle_room_choice(phone, text, session)
     elif session.state == WhatsAppSession.State.AWAIT_NAME:
         _handle_name(phone, text, session)
     else:
@@ -274,11 +351,41 @@ def _handle_guests(phone, text, session):
     guests = int(text)
     session.data['guests'] = guests
 
-    rooms = Room.objects.filter(branch_id=session.data['branch_id'], is_active=True)
-    if not rooms.exists():
+    rooms_exist = Room.objects.filter(
+        branch_id=session.data['branch_id'], is_active=True,
+    ).exists()
+    if not rooms_exist:
         _send(phone, _t(session, 'no_rooms'), session)
         return
 
+    if guests == 1:
+        # Одному гостю приватность не нужна — пропускаем шаг
+        session.data['want_private_room'] = False
+        session.save()
+        _show_room_types(phone, session)
+        return
+
+    session.state = WhatsAppSession.State.AWAIT_PRIVATE_CHOICE
+    session.save()
+    _send(phone, _t(session, 'ask_private'), session)
+
+
+def _handle_private_choice(phone, text, session):
+    if text == '1':
+        session.data['want_private_room'] = True
+    elif text == '2':
+        session.data['want_private_room'] = False
+    else:
+        _send(phone, _t(session, 'private_invalid'), session)
+        return
+    session.save()
+    _show_room_types(phone, session)
+
+
+def _show_room_types(phone, session):
+    rooms = Room.objects.filter(
+        branch_id=session.data['branch_id'], is_active=True,
+    )
     types = set()
     mapping = {}
     idx = 1
@@ -289,7 +396,10 @@ def _handle_guests(phone, text, session):
             mapping[str(idx)] = r.room_type
             bath = _t(session, 'room_bath_private') if r.has_bathroom else _t(session, 'room_bath_shared')
             currency = _t(session, 'currency')
-            lines.append(f"{idx}️⃣ {r.get_room_type_display()}\n   💰 {r.price_per_night:.0f} {currency} · {bath}")
+            lines.append(
+                f"{idx}️⃣ {r.get_room_type_display()}\n"
+                f"   💰 {r.price_per_night:.0f} {currency} · {bath}"
+            )
             idx += 1
 
     session.data['rooms_map'] = mapping
@@ -306,9 +416,205 @@ def _handle_room(phone, text, session):
         _send(phone, _t(session, 'wrong_choice', count=count), session)
         return
     session.data['room_type'] = room_type
-    session.state = WhatsAppSession.State.AWAIT_NAME
     session.save()
-    _send(phone, _t(session, 'ask_name'), session)
+
+    _try_preview(phone, session, want_private=session.data.get('want_private_room', False))
+
+
+def _try_preview(phone, session, *, want_private: bool):
+    """Автоподбор + показ preview. На ValidationError — fallback или отказ."""
+    branch_id = session.data['branch_id']
+    room_type = session.data['room_type']
+    checkin = datetime.date.fromisoformat(session.data['checkin'])
+    checkout = datetime.date.fromisoformat(session.data['checkout'])
+    guests = session.data['guests']
+    nights = (checkout - checkin).days
+
+    try:
+        beds = auto_assign_beds(
+            branch_id=branch_id, room_type=room_type,
+            checkin=checkin, checkout=checkout, guests=guests,
+            want_private_room=want_private,
+        )
+    except ValidationError:
+        if want_private:
+            _try_fallback_after_private_fail(
+                phone, session,
+                branch_id=branch_id, room_type=room_type,
+                checkin=checkin, checkout=checkout,
+                guests=guests, nights=nights,
+            )
+            return
+        _reset_session(session, keep_lang=True)
+        _send(phone, _t(session, 'no_availability_dates'), session)
+        return
+
+    total = calculate_booking_total(beds=beds, nights=nights)
+    session.data['preview_bed_ids'] = [b.id for b in beds]
+    session.data['preview_total'] = str(total)
+    session.data['is_fallback'] = False
+    session.state = WhatsAppSession.State.AWAIT_BED_CONFIRM
+    session.save()
+
+    room_number = beds[0].room.number
+    key = 'preview_private' if want_private else 'preview_dorm'
+    _send(phone,
+        _t(session, key,
+           room_number=room_number, n_beds=len(beds),
+           total=f"{total:.0f}", currency=_t(session, 'currency'),
+           nights=nights),
+        session)
+
+
+def _try_fallback_after_private_fail(
+    phone, session, *,
+    branch_id, room_type, checkin, checkout, guests, nights,
+):
+    """§8.5 вариант A: private не вышел → предложить обычный подбор."""
+    try:
+        beds = auto_assign_beds(
+            branch_id=branch_id, room_type=room_type,
+            checkin=checkin, checkout=checkout, guests=guests,
+            want_private_room=False,
+        )
+    except ValidationError:
+        _reset_session(session, keep_lang=True)
+        _send(phone, _t(session, 'no_availability_dates'), session)
+        return
+
+    total = calculate_booking_total(beds=beds, nights=nights)
+    session.data['preview_bed_ids'] = [b.id for b in beds]
+    session.data['preview_total'] = str(total)
+    session.data['is_fallback'] = True
+    session.data['want_private_room'] = False
+    session.state = WhatsAppSession.State.AWAIT_BED_CONFIRM
+    session.save()
+
+    _send(phone,
+        _t(session, 'private_fallback',
+           n_beds=len(beds), total=f"{total:.0f}",
+           currency=_t(session, 'currency'), nights=nights),
+        session)
+
+
+def _handle_bed_confirm(phone, text, session):
+    is_fallback = session.data.get('is_fallback', False)
+
+    if is_fallback:
+        if text not in ('1', '2'):
+            _send(phone, _t(session, 'bed_confirm_invalid_2'), session)
+            return
+        if text == '1':
+            session.state = WhatsAppSession.State.AWAIT_NAME
+            session.save()
+            _send(phone, _t(session, 'ask_name'), session)
+            return
+        # text == '2' — отмена
+        _reset_session(session, keep_lang=True)
+        _send(phone, _t(session, 'cancelled'), session)
+        return
+
+    if text not in ('1', '2', '3'):
+        _send(phone, _t(session, 'bed_confirm_invalid'), session)
+        return
+
+    if text == '1':
+        session.state = WhatsAppSession.State.AWAIT_NAME
+        session.save()
+        _send(phone, _t(session, 'ask_name'), session)
+        return
+
+    if text == '2':
+        _show_room_choice(phone, session)
+        return
+
+    # text == '3' — отмена
+    _reset_session(session, keep_lang=True)
+    _send(phone, _t(session, 'cancelled'), session)
+
+
+def _show_room_choice(phone, session):
+    branch_id = session.data['branch_id']
+    room_type = session.data['room_type']
+    guests = session.data['guests']
+    checkin = datetime.date.fromisoformat(session.data['checkin'])
+    checkout = datetime.date.fromisoformat(session.data['checkout'])
+
+    summary = get_availability_summary(
+        branch_id=branch_id, checkin=checkin, checkout=checkout,
+    )
+    want_private = session.data.get('want_private_room', False)
+    options = []
+    for t in summary['types']:
+        if t['room_type'] != room_type:
+            continue
+        for o in t['options']:
+            if o['free_beds'] < guests:
+                continue
+            if want_private and not o['can_take_whole_room']:
+                continue
+            options.append(o)
+
+    if not options:
+        _reset_session(session, keep_lang=True)
+        _send(phone, _t(session, 'no_availability_dates'), session)
+        return
+
+    mapping = {}
+    lines = []
+    for i, o in enumerate(options, 1):
+        mapping[str(i)] = {
+            'room_id': o['room_id'],
+            'number': o['room_number'],
+            'bed_ids': [b['id'] for b in o['beds']],
+        }
+        lines.append(_t(session, 'room_option',
+                        idx=i, number=o['room_number'],
+                        free_beds=o['free_beds']))
+
+    session.data['room_choices'] = mapping
+    session.state = WhatsAppSession.State.AWAIT_ROOM_CHOICE
+    session.save()
+    _send(phone, _t(session, 'choose_room') + "\n\n" + "\n".join(lines), session)
+
+
+def _handle_room_choice(phone, text, session):
+    choices = session.data.get('room_choices', {})
+    choice = choices.get(text)
+    if not choice:
+        count = len(choices)
+        _send(phone, _t(session, 'wrong_choice', count=count), session)
+        return
+
+    guests = session.data['guests']
+    all_bed_ids = choice['bed_ids']
+    if len(all_bed_ids) < guests:
+        _reset_session(session, keep_lang=True)
+        _send(phone, _t(session, 'no_availability_dates'), session)
+        return
+
+    bed_ids = all_bed_ids[:guests]
+    checkin = datetime.date.fromisoformat(session.data['checkin'])
+    checkout = datetime.date.fromisoformat(session.data['checkout'])
+    nights = (checkout - checkin).days
+
+    beds = list(Bed.objects.select_related('room').filter(id__in=bed_ids))
+    total = calculate_booking_total(beds=beds, nights=nights)
+
+    session.data['preview_bed_ids'] = bed_ids
+    session.data['preview_total'] = str(total)
+    session.data['is_fallback'] = False
+    session.state = WhatsAppSession.State.AWAIT_BED_CONFIRM
+    session.save()
+
+    want_private = session.data.get('want_private_room', False)
+    key = 'preview_private' if want_private else 'preview_dorm'
+    _send(phone,
+        _t(session, key,
+           room_number=choice['number'], n_beds=len(bed_ids),
+           total=f"{total:.0f}", currency=_t(session, 'currency'),
+           nights=nights),
+        session)
 
 
 def _handle_name(phone, text, session):
@@ -320,40 +626,39 @@ def _handle_name(phone, text, session):
     checkin_obj = datetime.date.fromisoformat(session.data['checkin'])
     checkout_obj = datetime.date.fromisoformat(session.data['checkout'])
     guests_n = session.data['guests']
-    r_type = session.data['room_type']
+    bed_ids = session.data.get('preview_bed_ids', [])
 
-    from apps.rooms.views import _get_booked_guests
-    booked_guests_by_type = _get_booked_guests(checkin_obj, checkout_obj, branch_id)
-    current_booked = booked_guests_by_type.get(r_type, 0)
-    rooms_of_type = Room.objects.filter(branch_id=branch_id, room_type=r_type, is_active=True)
-    total_capacity = sum(r.capacity for r in rooms_of_type)
+    beds = list(Bed.objects.select_related('room').filter(id__in=bed_ids))
+    if len(beds) != len(bed_ids):
+        _reset_session(session, keep_lang=True)
+        _send(phone, _t(session, 'no_availability'), session)
+        return
 
-    if current_booked + guests_n > total_capacity:
+    is_private = session.data.get('want_private_room', False)
+
+    try:
+        b = create_booking_with_beds(
+            branch_id=branch_id,
+            beds=beds,
+            checkin=checkin_obj,
+            checkout=checkout_obj,
+            name=name,
+            surname=surname,
+            phone="+" + phone if not phone.startswith("+") else phone,
+            source=Booking.Source.WHATSAPP,
+            country="Chat WhatsApp",
+            purpose=Booking.Purpose.OTHER,
+            status=Booking.Status.PENDING,
+            is_private_booking=is_private,
+        )
+    except ValidationError:
         _reset_session(session, keep_lang=True)
         _send(phone, _t(session, 'no_availability'), session)
         return
 
     nights = (checkout_obj - checkin_obj).days
-    b = Booking.objects.create(
-        name=name,
-        surname=surname,
-        phone="+" + phone if not phone.startswith("+") else phone,
-        country="Chat WhatsApp",
-        purpose=Booking.Purpose.OTHER,
-        source=Booking.Source.WHATSAPP,
-        branch_id=branch_id,
-        checkin=checkin_obj,
-        checkout=checkout_obj,
-        guests=guests_n,
-        room=r_type,
-        status=Booking.Status.PENDING
-    )
-
-    # Сохраняем язык до сброса сессии
     lang = session.lang
     _reset_session(session, keep_lang=True)
-
-    # Сохраняем язык в данных бронирования для сигнала
     b.wa_lang = lang
 
     _send(phone,
@@ -368,9 +673,7 @@ def _handle_name(phone, text, session):
     )
 
     try:
-        from apps.bookings.views import _send_tg_notification
-        _send_tg_notification(b)
+        from apps.bookings.services import notify_new_booking
+        notify_new_booking(b)
     except Exception:
         pass
-
-
